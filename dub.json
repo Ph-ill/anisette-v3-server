@@ -4,15 +4,19 @@
 	"authors": [
 		"Dadoum"
 	],
+	"mainSourceFile": "source/app.d",
 
 	"dependencies": {
 		"provision": {
-			"repository": "git+https://github.com/Dadoum/Provision.git",
-			"version": "7717ce1f7b3c9779fe9982005d07b6665071a239"
+			"path": "vendor/provision"
 		},
 		"slf4d": "~>2.1.1",
 		"vibe-d:web": "~>0.9.8",
 		"vibe-d:http": "~>0.9.8"
+	},
+
+	"subConfigurations": {
+		"provision": "libplist"
 	},
 
 	"configurations": [

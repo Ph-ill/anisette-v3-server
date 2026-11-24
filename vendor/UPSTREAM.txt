@@ -1,0 +1,6 @@
+Dadoum/Provision @ 7717ce1f7b3c9779fe9982005d07b6665071a239
+https://github.com/Dadoum/Provision/commit/7717ce1f7b3c9779fe9982005d07b6665071a239
+
+Vendored here so this fork's Docker build (COPY . . && dub build) compiles the
+local patch. Upstream still indexes X-Apple-I-MD-RINFO in the finish plist and
+throws when Apple omits it. The patch is in lib/provision/adi.d.
