@@ -20,6 +20,7 @@ import std.zip;
 
 import vibe.core.core;
 import vibe.http.websockets;
+import vibe.http.common;
 import vibe.http.server;
 import vibe.http.router;
 import vibe.stream.tls;
@@ -45,6 +46,10 @@ __gshared Device v1Device;
 __gshared Duration timeout;
 
 int main(string[] args) {
+	version (unittest) {
+		return 0;
+	}
+
 	debug {
 		configureLoggingProvider(new shared DefaultProvider(true, Levels.DEBUG));
 	} else {
@@ -156,7 +161,10 @@ int main(string[] args) {
 			ProvisioningSession provisioningSession = new ProvisioningSession(v1Adi, v1Device);
 			provisioningSession.provision(dsId);
 			log.info("Provisioning done!");
-		} catch (Exception) {}
+		} catch (Exception ex) {
+			log.errorF!"Provisioning failed: %s"(ex.toString());
+			log.error("Server will keep listening; GET / retries provisioning.");
+		}
 	}
 
 	if (skipServerStartup) {
@@ -194,35 +202,50 @@ class AnisetteService {
 		import core.time;
 		auto log = getLogger();
 		log.info("[<<] anisette-v1 request");
-		auto time = Clock.currTime();
+		try {
+			auto time = Clock.currTime();
 
-		if (!v1Adi.isMachineProvisioned(dsId)) {
-			ProvisioningSession provisioningSession = new ProvisioningSession(v1Adi, v1Device);
-			provisioningSession.provision(dsId);
-			log.info("Provisioning done!");
+			if (!v1Adi.isMachineProvisioned(dsId)) {
+				ProvisioningSession provisioningSession = new ProvisioningSession(v1Adi, v1Device);
+				provisioningSession.provision(dsId);
+				log.info("Provisioning done!");
+			}
+
+			auto otp = v1Adi.requestOTP(dsId);
+
+			import std.conv;
+			import std.json;
+
+			JSONValue responseJson = [
+				"X-Apple-I-Client-Time": time.toISOExtString.split('.')[0] ~ "Z",
+				"X-Apple-I-MD":  Base64.encode(otp.oneTimePassword),
+				"X-Apple-I-MD-M": Base64.encode(otp.machineIdentifier),
+				"X-Apple-I-MD-RINFO": to!string(17106176),
+				"X-Apple-I-MD-LU": v1Device.localUserUUID,
+				"X-Apple-I-SRL-NO": "0",
+				"X-MMe-Client-Info": v1Device.serverFriendlyDescription,
+				"X-Apple-I-TimeZone": time.timezone.dstName,
+				"X-Apple-Locale": "en_US",
+				"X-Mme-Device-Id": v1Device.uniqueDeviceIdentifier,
+			];
+
+			res.headers["Implementation-Version"] = brandingCode;
+			res.writeBody(responseJson.toString(JSONOptions.doNotEscapeSlashes), "application/json");
+			log.infoF!"[>>] 200 OK %s"(responseJson);
+		} catch (Exception ex) {
+			log.errorF!"[>>] anisette-v1 failed: %s"(ex.toString());
+			string message = format!"%s: %s"(typeid(ex).name, ex.msg);
+			if (ex.next) {
+				message ~= format!" (%s: %s)"(typeid(ex.next).name, ex.next.msg);
+			}
+			res.statusCode = HTTPStatus.internalServerError;
+			res.headers["Implementation-Version"] = brandingCode;
+			JSONValue error = [
+				"result": "Error",
+				"message": message,
+			];
+			res.writeBody(error.toString(JSONOptions.doNotEscapeSlashes), "application/json");
 		}
-		
-		auto otp = v1Adi.requestOTP(dsId);
-
-		import std.conv;
-		import std.json;
-
-		JSONValue responseJson = [
-			"X-Apple-I-Client-Time": time.toISOExtString.split('.')[0] ~ "Z",
-			"X-Apple-I-MD":  Base64.encode(otp.oneTimePassword),
-			"X-Apple-I-MD-M": Base64.encode(otp.machineIdentifier),
-			"X-Apple-I-MD-RINFO": to!string(17106176),
-			"X-Apple-I-MD-LU": v1Device.localUserUUID,
-			"X-Apple-I-SRL-NO": "0",
-			"X-MMe-Client-Info": v1Device.serverFriendlyDescription,
-			"X-Apple-I-TimeZone": time.timezone.dstName,
-			"X-Apple-Locale": "en_US",
-			"X-Mme-Device-Id": v1Device.uniqueDeviceIdentifier,
-		];
-
-		res.headers["Implementation-Version"] = brandingCode;
-		res.writeBody(responseJson.toString(JSONOptions.doNotEscapeSlashes), "application/json");
-		log.infoF!"[>>] 200 OK %s"(responseJson);
 	}
 
 	@method(HTTPMethod.GET)
